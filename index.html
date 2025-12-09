@@ -1,0 +1,567 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>MySpace+ (Upgraded UI)</title>
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+
+	<style>
+		.selectedChat {
+			outline: 2px solid #4ade80;
+			background:#e0ffe9 !important;
+		}
+		body {
+			margin:0; font-family:Arial, Helvetica, sans-serif;
+			background:#e8ecf3;
+			display:flex; height:100vh;
+		}
+/* SIDEBAR */
+#sidebar {
+	width:240px; background:#1f2937; color:white;
+	display:flex; flex-direction:column; padding:20px;
+}
+#sidebar h1 { font-size:22px; margin:0 0 16px; color:#4ade80; }
+#authArea input {
+	width:100%; padding:8px; margin-top:6px; border:none; border-radius:6px;
+}
+#authArea button {
+	width:100%; padding:10px; margin-top:10px;
+	background:#4ade80; border:none; color:black; font-weight:bold; border-radius:6px;
+	cursor:pointer;
+}
+#authArea button:hover{ background:#22c55e;}
+
+/* MAIN CONTENT */
+#main {
+	flex:1; overflow-y:auto; padding:20px;
+}
+
+/* COMPOSER CARD */
+.card {
+	background:white; padding:16px; margin-bottom:15px;
+	border-radius:10px; box-shadow:0 3px 7px rgba(0,0,0,.08);
+}
+textarea {width:100%; padding:10px;border-radius:6px;}
+
+/* FEED POST */
+.post{
+	background:white;padding:15px;margin-bottom:12px;border-radius:10px;
+	box-shadow:0 2px 5px rgba(0,0,0,.07);
+}
+.post .user {font-weight:bold;font-size:1.1em;}
+.post .time{font-size:.78em;color:#666;}
+
+button.small {
+	padding:6px 10px; border-radius:6px; border:none; cursor:pointer;
+	background:#dbeafe; margin-right:6px;
+}
+button.small:hover{background:#bfdbfe;}
+
+/* CHAT PANEL */
+#chatDrawer{
+	width:500px;
+	position:fixed; top:0; right:0; bottom:0;
+	display:none; z-index:9999;
+	background:white; border-left:4px solid #4ade80;
+	display:flex; flex-direction:row;
+}
+
+#chatList{
+	width:200px; border-right:1px solid #ccc;
+	background:#f2f5fa; padding:12px; overflow-y:auto;
+	position:relative;
+}
+
+#chatRight{ flex:1; display:flex; flex-direction:column; }
+#chatWindow{ flex:1; padding:12px; overflow-y:auto; background:white; }
+#chatInputArea{ display:flex; gap:8px; padding:10px; }
+
+#chatWindow {
+	flex:1; padding:12px; overflow-y:auto; background:#f7f9fc;
+}
+#chatInputArea {
+	display:flex; padding:8px; gap:6px; border-top:1px solid #ccc;
+}
+#chatInputArea input{
+	flex:1;padding:10px;border-radius:6px;border:none;background:#eef2f7;
+}
+#sendChat{
+	background:#4ade80;border:none;padding:8px 12px;border-radius:6px;
+	cursor:pointer;font-weight:bold;
+}
+
+</style>
+</head>
+
+<body>
+
+	<div id="sidebar">
+		<h1>MySpace+</h1>
+		<div id="authArea"></div>
+
+		<hr style="margin:15px 0;border-color:#334155;">
+		<button onclick="chatDrawer.style.display='flex'">📨 Messages</button>
+		<input id="searchInput" placeholder="Search users..." style="padding:8px;border-radius:6px;border:none;">
+		<button id="searchBtn" style="margin-top:10px;width:100%;">Search</button>
+		<ul id="searchResults" style="margin-top:10px;list-style:none;padding-left:0;"></ul>
+	</div>
+
+	<div id="main">
+
+		<div id="composer" class="card" style="display:none;">
+			<h2>Create Post 📝</h2>
+			<form id="postForm" enctype="multipart/form-data">
+				<textarea id="content" rows="3" placeholder="What’s on your mind?"></textarea>
+				<input type="file" id="attachments" multiple style="margin-top:8px;" onchange="prepareEmbedList()">
+
+<!-- Embed button -->
+<button type="button" onclick="insertSelectedImage()" 
+style="margin-top:10px;background:#bfdbfe;border:none;padding:8px;border-radius:6px;">
+🖼 Insert Image in Text
+</button>
+
+<button type="submit" style="margin-top:10px;border:none;background:#4ade80;padding:10px;border-radius:6px;font-weight:bold;">
+	Post
+</button>
+</form>
+</div>
+
+<h2>Your Feed 📰</h2>
+<div id="feed"></div>
+</div>
+
+<div id="chatDrawer">
+
+<!-- LEFT: Conversation List -->
+<div id="chatList">
+	<button onclick="closeChat()"
+	style="
+	position:absolute;
+	top:6px;
+	right:6px;
+	background:#ef4444;
+	border:none;
+	padding:2px 6px;
+	font-size:12px;
+	border-radius:4px;
+	color:white;
+	cursor:pointer;">
+	✖
+</button>
+
+<h2 style="margin:0 0 10px">Messages 💬</h2>
+
+<!-- Start chat dropdown -->
+<select id="newChatSelect" style="width:100%;padding:6px;border-radius:6px;margin-bottom:10px;">
+	<option disabled selected>Select user to chat</option>
+</select>
+<button id="startChatBtn" style="width:100%;margin-bottom:10px;">Start Chat</button>
+
+<div id="convoList"></div>
+</div>
+
+<!-- RIGHT: Chat window -->
+<div id="chatRight">
+	<div id="chatWindow"></div>
+	<div id="chatInputArea">
+		<input id="chatMsg" placeholder="Type message...">
+		<button id="sendChat">Send</button>
+	</div>
+</div>
+</div>
+
+<script>
+	let me = null, ws = null;
+
+	function closeChat(){
+		document.getElementById("chatDrawer").style.display = "none";
+	}
+
+	function setAuthUI(){
+		const box = document.getElementById("authArea");
+		box.innerHTML = "";
+
+		if (!me){
+			box.innerHTML = `
+<input id="u" placeholder="Username">
+<input id="p" type="password" placeholder="Password">
+<button id="loginBtn">Login</button>
+<button id="regBtn">Register</button>
+			`;
+
+			document.getElementById("loginBtn").onclick = () => auth("/api/login");
+			document.getElementById("regBtn").onclick = () => auth("/api/register");
+		} else {
+			box.innerHTML = `
+<strong>${me.username}</strong><br>
+<button id="logoutBtn">Logout</button>
+<button id="deleteBtn" style="margin-top:6px;background:#e11d48;color:white;">
+Delete Account
+</button>
+
+<div style="margin-top:15px;">
+<label style="font-size:.9em;">
+<input type="checkbox" id="dmFollowOnlyToggle"> 
+Only people I follow can message me
+</label>
+</div>
+			`;
+
+
+			document.getElementById("logoutBtn").onclick = async ()=>{
+				await fetch("/api/logout",{method:"POST"});
+				me=null;
+				resetUI();
+			};
+			document.getElementById("deleteBtn").onclick = deleteAccount;
+// Load current setting
+			fetch("/api/me").then(r=>r.json()).then(j=>{
+				if(j.loggedIn){
+					document.getElementById("dmFollowOnlyToggle").checked = j.user.dm_follow_only;
+				}
+			});
+
+// Toggle save
+			document.getElementById("dmFollowOnlyToggle").onchange = async (e)=>{
+				await fetch("/api/settings/dm_follow_only", {
+					method:"POST",
+					headers:{ "content-type":"application/json" },
+					body:JSON.stringify({ enabled:e.target.checked })
+				});
+			};
+
+		}
+	}
+
+	async function auth(url){
+		const username=document.getElementById("u").value;
+		const password=document.getElementById("p").value;
+
+		let r = await fetch(url,{
+			method:"POST",
+			headers:{'content-type':'application/json'},
+			body:JSON.stringify({username,password})
+		});
+		let j = await r.json();
+		if(j.ok){ me=j.user; initAfterLogin(); }
+		else alert(j.error||"Auth failed");
+	}
+
+	async function deleteAccount(){
+		if(!confirm("This will permanently delete your account. Continue?")) return;
+
+		let r = await fetch("/api/account", { method:"DELETE" });
+		let j = await r.json();
+
+		if(j.ok){
+			alert("Account Deleted");
+			me = null;
+			resetUI();
+		} else {
+			alert("Unable to delete account");
+		}
+	}
+
+	async function loadFeed(){
+		if(!me) return;
+		const r = await fetch("/api/feed");
+		const j = await r.json();
+
+		document.getElementById("feed").innerHTML = j.posts.map(p => {
+
+			const files = (p.attachments||[]).map(a=>{
+				const url = `/uploads/${a.filename}`;
+				if(a.mime?.startsWith("image/")){
+					return `<a href="${url}" download style="display:block;margin-top:6px;">🖼 Image: ${a.original||a.filename}</a>`;
+				}else{
+					return `<a href="${url}" download style="display:block;margin-top:6px;">📄 ${a.original||a.filename}</a>`;
+				}
+			}).join("");
+
+			return `
+<div class="post" id="post_${p.id}">
+<b>${p.username}</b><br>
+<span style="font-size:.8em;color:#666">${new Date(p.created_at).toLocaleString()}</span>
+<div style="margin-top:8px">${p.content}</div>
+
+				${files}   <!-- 🔥 attachments now show -->
+
+<button class="small" onclick="toggleLike(${p.id},this)" data-liked="${p.liked_by_me}">
+				${p.liked_by_me?"♥":"♡"} <span class="count">${p.like_count}</span>
+</button>
+</div>
+			`;
+		}).join("");
+
+	}
+
+// Toggle like (POST to like, DELETE to unlike). Updates the button in-place using returned count.
+	async function toggleLike(postId, btn){
+		if(!me) return alert("Login first!");
+		const liked = btn.dataset.liked === 'true';
+		const method = liked ? 'DELETE' : 'POST';
+		const r = await fetch(`/api/posts/${postId}/like`, { method });
+		const j = await r.json();
+		if(!j.ok) return alert("Error toggling like");
+		btn.dataset.liked = (!liked).toString();
+		btn.innerHTML = `${!liked ? '♥' : '♡'} <span class="count">${j.count}</span>`;
+	}
+
+	document.getElementById("postForm").onsubmit = async(e) =>{
+		e.preventDefault();
+		if(!me) return alert("Login first!");
+
+		let fd = new FormData();
+		fd.append("content", document.getElementById("content").value);
+		[...document.getElementById("attachments").files].forEach(f=>fd.append("attachments", f));
+
+		await fetch("/api/posts",{method:"POST", body:fd});
+		loadFeed();
+	};
+
+	let pendingEmbeds = [];
+
+	function prepareEmbedList(){
+// use the DOM element explicitly (safer than relying on global element name)
+		const input = document.getElementById("attachments");
+		pendingEmbeds = [...(input.files || [])].map(f => f.name);
+		console.log("Image embed list:", pendingEmbeds);
+	}
+
+
+	function insertSelectedImage(){
+		if(pendingEmbeds.length === 0) return alert("Upload at least one image first.");
+
+		const textarea = document.getElementById("content");
+
+// Insert every image at cursor position
+		pendingEmbeds.forEach(name=>{
+			const tag = `[img:${name}]`;
+			const start = textarea.selectionStart;
+			const end = textarea.selectionEnd;
+			textarea.value =
+			textarea.value.substring(0,start) + tag + textarea.value.substring(end);
+			textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+		});
+
+		textarea.focus();
+	}
+
+	async function likePost(id){
+		if(!me) return alert("Login first!");
+		await fetch(`/api/posts/${id}/like`,{method:"POST"});
+		loadFeed();
+	}
+	async function bookmarkPost(id){
+		if(!me) return alert("Login first!");
+		await fetch(`/api/posts/${id}/bookmark`,{method:"POST"});
+		loadFeed();
+	}
+
+	async function follow(uid){
+		if(!me) return alert("Login first!");
+		let r = await fetch(`/api/users/${uid}/isFollowing`);
+		let j = await r.json();
+		await fetch(`/api/users/${uid}/${j.following?"unfollow":"follow"}`,{method:"POST"});
+
+		document.getElementById(`followBtn_${uid}`).innerText =
+		j.following ? "Follow" : "Unfollow";
+	}
+
+	async function searchUsers(){
+		let q=document.getElementById("searchInput").value;
+		let r=await fetch(`/api/search/users?q=${q}`);
+		let j=await r.json();
+
+		document.getElementById("searchResults").innerHTML = "";
+		for(const u of j.results){
+			let st = await fetch(`/api/users/${u.id}/isFollowing`);
+			let s = await st.json();
+
+			let li = document.createElement("li");
+			li.innerHTML = `${u.username} 
+<button onclick="follow(${u.id})" id="followBtn_${u.id}">
+			${s.following ? "Unfollow" : "Follow"}
+			</button>`;
+
+			document.getElementById("searchResults").appendChild(li);
+		}
+	}
+
+	let activeChat = null;
+
+// Load conversations into sidebar
+	async function loadConversations(){
+		let r = await fetch("/api/conversations");
+		let j = await r.json();
+
+		convoList.innerHTML = j.convos.map(c=>`
+<div id="convo_${c.id}" 
+onclick="openChat('${c.username}',${c.id})"
+style="padding:8px;cursor:pointer;border-radius:4px;margin-bottom:4px;background:#fff;">
+<b>${c.username}</b><br>
+<small>${c.last_msg??""}</small>
+</div>
+		`).join("");
+
+	}
+
+// Open chat by selecting a username
+	async function openChat(name,id){
+// Highlight selected chat
+		document.querySelectorAll("#convoList > div").forEach(el => el.classList.remove("selectedChat"));
+		const selected = document.getElementById(`convo_${id}`);
+		if (selected) selected.classList.add("selectedChat");
+
+// Check if DM allowed
+		let r = await fetch(`/api/users/${id}/canDM`);
+		let j = await r.json();
+
+		if (!j.allowed) {
+			alert(`${name} only allows messages from people they follow.`);
+			return;
+		}
+
+		activeChat = id;
+		chatWindow.innerHTML = `<div>Loading chat with <b>${name}</b>...</div>`;
+		ws.send(JSON.stringify({type:"history",withUser:id}));
+		chatDrawer.style.display="flex";
+	}
+
+// Send message (no ID input needed!)
+	sendChat.onclick=()=>{
+		if(!activeChat) return alert("Select someone to chat with first!");
+		ws.send(JSON.stringify({ type:"dm", toUserId:activeChat, text:chatMsg.value }));
+		chatMsg.value="";
+	};
+
+// Render messages
+	function renderHistory(list){
+		chatWindow.innerHTML="";
+		list.forEach(m=>addMsg(
+			m.from_user_id===me.id?"You":m.from_user_id,
+			m.text,m.created_at,
+			m.from_user_id===me.id
+			));
+	}
+
+// Print a single chat message to the chat window
+	function addMsg(sender, text, time, isSelf=false){
+		let div = document.createElement("div");
+		div.style.margin = "6px 0";
+		div.style.textAlign = isSelf ? "right" : "left";
+
+		div.innerHTML = `
+<div style="display:inline-block;max-width:75%;padding:8px 12px;border-radius:10px;
+background:${isSelf ? "#4ade80" : "#dbeafe"};color:${isSelf?"black":"#111"};">
+<b>${sender}</b><br>${text}
+</div><br>
+<small style="color:#666">${new Date(time).toLocaleTimeString()}</small>
+		`;
+
+		chatWindow.appendChild(div);
+chatWindow.scrollTop = chatWindow.scrollHeight; // auto scroll down
+}
+
+function initAfterLogin(){
+	setAuthUI();
+	document.getElementById("composer").style.display="block";
+document.getElementById("chatDrawer").style.display="none"; // Hidden until opened manually
+loadFeed();
+initWS();
+loadAllUsers();  // populates dropdown
+}
+
+function initWS(){
+	ws = new WebSocket(`ws://${location.host}`);
+
+	ws.onopen = () => {
+		console.log("WS connected");
+		loadConversations();
+	};
+
+	ws.onmessage = (e)=>{
+		const d = JSON.parse(e.data);
+
+// DM history load
+		if(d.type==="history"){
+			renderHistory(d.messages);
+		}
+
+// Incoming DM from others
+		if(d.type==="dm" && d.from === activeChat){
+			addMsg(d.from,d.text,new Date());
+		}
+
+// Own message appears instantly
+		if(d.type==="dm_self"){
+			addMsg("You",d.text,new Date(),true);
+		}
+
+// DM blocked by privacy setting
+		if (d.type === "dm_blocked") {
+			alert("This user only allows messages from people they follow.");
+		}
+
+// Realtime feed update
+		if(d.type==="feed_update") loadFeed();
+
+// New messages -> refresh conversation list
+		if(d.type==="new_message") loadConversations();
+	};
+}
+
+function resetUI(){
+	setAuthUI();
+	document.getElementById("composer").style.display="none";
+	document.getElementById("chatDrawer").style.display="none";
+	document.getElementById("feed").innerHTML="";
+}
+
+async function boot(){
+	let r = await fetch("/api/me");
+	let j = await r.json();
+
+	if(j.loggedIn){
+		me = j.user;
+		initAfterLogin();
+	}else{
+		resetUI();
+	}
+}
+boot();
+
+document.getElementById("searchBtn").onclick=searchUsers;
+
+// Load all users into "Start Chat" dropdown
+async function loadAllUsers(){
+	let r = await fetch("/api/search/users?q=");
+	let j = await r.json();
+	newChatSelect.innerHTML = `<option disabled selected>Select user to chat</option>`;
+	j.results.forEach(u=>{
+		if(u.id!==me.id)
+			newChatSelect.innerHTML+=`<option value="${u.id}">${u.username}</option>`;
+	});
+}
+
+// Start new conversation
+startChatBtn.onclick = async ()=>{
+	const id = newChatSelect.value;
+	const name = newChatSelect.options[newChatSelect.selectedIndex].text;
+	if(!id) return alert("Choose someone first!");
+
+	let r = await fetch(`/api/users/${id}/canDM`);
+	let j = await r.json();
+
+	if (!j.allowed) {
+		alert(`${name} only allows messages from people they follow.`);
+		return;
+	}
+
+	openChat(name,id);
+};
+
+</script>
+
+</body>
+</html>
